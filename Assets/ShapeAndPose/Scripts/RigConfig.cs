@@ -5,8 +5,13 @@ namespace ShapeAndPose_ns
     [Serializable]
     public class RigConfig
     {
-        public string[] meshArmLeft;
-        public string[] meshArmRight;
-        // You can add other limbs as needed.
+        public LimbConfig[] limbs;
+    }
+
+    [Serializable]
+    public class LimbConfig
+    {
+        public string name;      // e.g., "arm_lft"
+        public string[] joints;  // e.g., ["LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand"]
     }
 }

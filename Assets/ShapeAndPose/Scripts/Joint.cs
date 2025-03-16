@@ -8,23 +8,25 @@ namespace ShapeAndPose_ns
         public float ringRadius = 0.05f;
         public int ringDivisions = 8;
         
-        // This holds the circular cross-section (in world space) computed at this joint.
+        // The circular cross‐section computed at this joint.
         public Vector3[] vertexRing;
+        
+        // Direct child joints (set during initialization).
+        public Joint[] children;
 
         /// <summary>
-        /// Computes the vertex ring (a circle of points) at this joint’s position.
+        /// Computes the vertex ring (circle of points) at this joint’s position.
         /// </summary>
         public void ComputeVertexRing()
         {
             vertexRing = new Vector3[ringDivisions];
-            // Use the joint's own position and rotation.
             Vector3 center = transform.position;
             Quaternion rotation = transform.rotation;
             float angleStep = 360f / ringDivisions;
             for (int i = 0; i < ringDivisions; i++)
             {
                 float angle = angleStep * i * Mathf.Deg2Rad;
-                // Points in the joint's local XZ plane.
+                // Compute a point in the joint's local XZ plane.
                 Vector3 localPoint = new Vector3(Mathf.Cos(angle) * ringRadius, 0, Mathf.Sin(angle) * ringRadius);
                 vertexRing[i] = center + rotation * localPoint;
             }

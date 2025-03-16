@@ -24,8 +24,8 @@ namespace ShapeAndPose_ns
             if (GUILayout.Button("Load Config and Create Mesh"))
             {
                 // Assuming your JSON config file is located at Assets/Configs/human_01.json
-                string configPath = Path.Combine(Application.dataPath, "ShapeAndPose/Scripts/human_01.json");
-                r.InitializeRig(configPath);
+                
+                r.InitializeRig();
             }
         }
 

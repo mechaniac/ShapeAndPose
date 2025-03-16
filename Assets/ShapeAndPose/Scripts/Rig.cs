@@ -6,32 +6,55 @@ namespace ShapeAndPose_ns
 {
     public class Rig : MonoBehaviour
     {
-        [Header("Source Rig Joints")]
-        // The imported rig’s joints.
-        public Transform[] sourceJoints;
-        
-        [Header("Limb Joints")]
-        // Limb arrays (populated from the config file).
-        public Joint[] arm_lft;
-        public Joint[] arm_rgt;
-        
-        // This mesh will display the combined limb meshes.
+        [Header("Source Rig Hierarchy")]
+        // Holds the root of the entire joint hierarchy in the scene.
+        public Transform sourceRig;
+
+        private int previousChecksum = 0;
+
+        [Header("Limb Data")]
+        // Each limb is stored as an array of Joint; limbs are determined from the config.
+        public List<Joint[]> limbs = new List<Joint[]>();
+
+        // The final combined body mesh.
         public Mesh bodyMesh;
 
         /// <summary>
         /// Main initialization method.
-        /// Loads the config, attaches Joint components, and creates the body mesh.
+        /// Loads the config, creates the Joint components from the sourceRig hierarchy, and builds the body mesh.
         /// </summary>
-        public void InitializeRig(string configPath)
+        /// <param name="configPath">Full path to the JSON config file.</param>
+        public void InitializeRig()
         {
+            string configPath = Path.Combine(Application.dataPath, "ShapeAndPose/Scripts/human_01.json");
             CreateJoints(configPath);
             CreateBodyMeshes();
         }
 
+        // Update is called once per frame
+        void Update()
+        {
+            UpdateRig();
+        }
+
+        public void UpdateRig()
+        {
+            int currentChecksum = ComputeRigChecksum(sourceRig);
+            if (currentChecksum != previousChecksum)
+            {
+                
+                InitializeRig();
+                previousChecksum = currentChecksum;
+            }
+        }
+
+
         /// <summary>
-        /// Loads the JSON config, finds the source joints by name, attaches Joint components,
-        /// computes their vertex rings, and stores them in limb arrays.
+        /// Loads the JSON config and for each limb defined there, finds matching joints in the sourceRig hierarchy.
+        /// Attaches Joint components (if needed), computes their vertex rings, and stores them in the limbs list.
+        /// Also assigns each Joint’s direct children.
         /// </summary>
+        /// <param name="configPath">Full path to the JSON config file.</param>
         public void CreateJoints(string configPath)
         {
             if (!File.Exists(configPath))
@@ -42,32 +65,16 @@ namespace ShapeAndPose_ns
             string json = File.ReadAllText(configPath);
             RigConfig config = JsonUtility.FromJson<RigConfig>(json);
 
-            List<Joint> leftJoints = new List<Joint>();
-            if (config.meshArmLeft != null)
-            {
-                foreach (string jointName in config.meshArmLeft)
-                {
-                    Transform found = FindSourceJointByName(jointName);
-                    if (found != null)
-                    {
-                        Joint jnt = found.GetComponent<Joint>();
-                        if (jnt == null)
-                        {
-                            jnt = found.gameObject.AddComponent<Joint>();
-                        }
-                        jnt.ComputeVertexRing();
-                        leftJoints.Add(jnt);
-                    }
-                }
-            }
-            arm_lft = leftJoints.ToArray();
+            // Clear any previously stored limbs.
+            limbs.Clear();
 
-            List<Joint> rightJoints = new List<Joint>();
-            if (config.meshArmRight != null)
+            // Iterate over each limb defined in the config.
+            foreach (LimbConfig limbConfig in config.limbs)
             {
-                foreach (string jointName in config.meshArmRight)
+                List<Joint> limbJoints = new List<Joint>();
+                foreach (string jointName in limbConfig.joints)
                 {
-                    Transform found = FindSourceJointByName(jointName);
+                    Transform found = FindChildRecursive(sourceRig, jointName);
                     if (found != null)
                     {
                         Joint jnt = found.GetComponent<Joint>();
@@ -76,66 +83,91 @@ namespace ShapeAndPose_ns
                             jnt = found.gameObject.AddComponent<Joint>();
                         }
                         jnt.ComputeVertexRing();
-                        rightJoints.Add(jnt);
+                        limbJoints.Add(jnt);
+                    }
+                    else
+                    {
+                        Debug.LogWarning("Joint not found: " + jointName);
                     }
                 }
+                limbs.Add(limbJoints.ToArray());
             }
-            arm_rgt = rightJoints.ToArray();
+
+            // After collecting limbs, assign direct children for each Joint.
+            foreach (Joint[] limb in limbs)
+            {
+                AssignDirectChildren(limb);
+            }
         }
 
         /// <summary>
-        /// Searches the sourceJoints array for a Transform matching the given name.
+        /// Recursively searches the hierarchy starting at 'parent' for a Transform with the given name.
         /// </summary>
-        private Transform FindSourceJointByName(string jointName)
+        private Transform FindChildRecursive(Transform parent, string name)
         {
-            foreach (Transform t in sourceJoints)
+            if (parent.name == name)
+                return parent;
+            foreach (Transform child in parent)
             {
-                if (t.name == jointName)
-                    return t;
+                Transform result = FindChildRecursive(child, name);
+                if (result != null)
+                    return result;
             }
             return null;
         }
 
         /// <summary>
-        /// Creates a mesh for each limb (cylinder from the joints' vertex rings) and combines them into one body mesh.
+        /// For each Joint in the provided array, assigns its direct child joints (if present).
+        /// </summary>
+        private void AssignDirectChildren(Joint[] joints)
+        {
+            if (joints == null)
+                return;
+            foreach (Joint j in joints)
+            {
+                List<Joint> directChildren = new List<Joint>();
+                foreach (Transform child in j.transform)
+                {
+                    Joint childJoint = child.GetComponent<Joint>();
+                    if (childJoint != null)
+                    {
+                        directChildren.Add(childJoint);
+                    }
+                }
+                j.children = directChildren.ToArray();
+            }
+        }
+
+        /// <summary>
+        /// Creates a mesh for each limb by connecting the vertex rings of its Joint components,
+        /// then combines all limb meshes into one body mesh attached to this GameObject.
         /// </summary>
         public void CreateBodyMeshes()
         {
-            // Create a mesh for each limb.
-            Mesh leftMesh = CreateMeshFromJoints(arm_lft);
-            Mesh rightMesh = CreateMeshFromJoints(arm_rgt);
-
-            // Combine the limb meshes into one body mesh.
             List<CombineInstance> combineInstances = new List<CombineInstance>();
-            if (leftMesh != null)
+
+            foreach (Joint[] limb in limbs)
             {
-                combineInstances.Add(new CombineInstance { mesh = leftMesh, transform = Matrix4x4.identity });
-            }
-            if (rightMesh != null)
-            {
-                combineInstances.Add(new CombineInstance { mesh = rightMesh, transform = Matrix4x4.identity });
+                Mesh limbMesh = CreateMeshFromJoints(limb);
+                if (limbMesh != null)
+                {
+                    combineInstances.Add(new CombineInstance { mesh = limbMesh, transform = Matrix4x4.identity });
+                }
             }
             Mesh combinedMesh = new Mesh();
             combinedMesh.CombineMeshes(combineInstances.ToArray(), true, false);
             bodyMesh = combinedMesh;
 
-            // Assign the combined mesh to this GameObject.
             MeshFilter mf = GetComponent<MeshFilter>();
             if (mf == null)
-            {
                 mf = gameObject.AddComponent<MeshFilter>();
-            }
             mf.mesh = bodyMesh;
 
             MeshRenderer mr = GetComponent<MeshRenderer>();
             if (mr == null)
-            {
                 mr = gameObject.AddComponent<MeshRenderer>();
-            }
             if (mr.sharedMaterial == null)
-            {
-                mr.sharedMaterial = new Material(Shader.Find("Standard"));
-            }
+                mr.sharedMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
         }
 
         /// <summary>
@@ -150,13 +182,13 @@ namespace ShapeAndPose_ns
             List<Vector3> meshVertices = new List<Vector3>();
             List<int> triangles = new List<int>();
 
-            // Add all vertex rings to the mesh vertices.
-            for (int j = 0; j < joints.Length; j++)
+            // Append all vertex rings.
+            for (int i = 0; i < joints.Length; i++)
             {
-                meshVertices.AddRange(joints[j].vertexRing);
+                meshVertices.AddRange(joints[i].vertexRing);
             }
 
-            // Connect consecutive rings with triangles.
+            // Create triangles between consecutive rings.
             for (int ring = 0; ring < joints.Length - 1; ring++)
             {
                 int startCurrent = ring * divisions;
@@ -164,11 +196,11 @@ namespace ShapeAndPose_ns
                 for (int i = 0; i < divisions; i++)
                 {
                     int nextI = (i + 1) % divisions;
-                    // Triangle 1
+                    // Triangle 1.
                     triangles.Add(startCurrent + i);
                     triangles.Add(startNext + i);
                     triangles.Add(startNext + nextI);
-                    // Triangle 2
+                    // Triangle 2.
                     triangles.Add(startCurrent + i);
                     triangles.Add(startNext + nextI);
                     triangles.Add(startCurrent + nextI);
@@ -179,6 +211,28 @@ namespace ShapeAndPose_ns
             mesh.triangles = triangles.ToArray();
             mesh.RecalculateNormals();
             return mesh;
+        }
+
+        /// <summary>
+        /// Computes a checksum from all joints’ positions.
+        /// </summary>
+        private int ComputeRigChecksum(Transform root)
+        {
+            int checksum = 17;
+            if (root == null)
+                return checksum;
+
+            // Combine the current transform's properties.
+            checksum = checksum * 31 + root.position.GetHashCode();
+            checksum = checksum * 31 + root.rotation.GetHashCode();
+            checksum = checksum * 31 + root.localScale.GetHashCode();
+
+            // Recurse through all children.
+            foreach (Transform child in root)
+            {
+                checksum = checksum * 31 + ComputeRigChecksum(child);
+            }
+            return checksum;
         }
     }
 }

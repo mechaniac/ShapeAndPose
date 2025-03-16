@@ -1,7 +1,9 @@
 {
-    "meshArmLeft": ["LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand"],
-    "meshArmRight": ["RightShoulder", "RightArm", "RightForeArm", "RightHand"],
-    "meshLegLeft":["LeftUpLeg", "LeftLeg", "LeftFoot"],
-    "meshLegRight":["RightUpLeg", "RightLeg", "RightFoot"]
+    "limbs": [
+      { "name": "arm_lft", "joints": ["LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand"] },
+      { "name": "arm_rgt", "joints": ["RightShoulder", "RightArm", "RightForeArm", "RightHand"] },
+      { "name": "leg_lft", "joints": ["LeftUpLeg", "LeftLeg", "LeftFoot"] },
+      { "name": "leg_rgt", "joints": ["RightUpLeg", "RightLeg", "RightFoot"] }
+    ]
   }
   

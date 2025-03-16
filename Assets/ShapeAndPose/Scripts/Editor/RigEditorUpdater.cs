@@ -18,7 +18,7 @@ namespace ShapeAndPose_ns
             // Find all Rig instances in the scene.
             foreach (Rig r in Object.FindObjectsOfType<Rig>())
             {
-                // r.UpdateRig();
+                r.UpdateRig();
             }
         }
     }
