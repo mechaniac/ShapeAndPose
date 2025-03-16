@@ -1,120 +1,184 @@
-using System.Collections;
 using System.Collections.Generic;
-using System.Data.Common;
 using UnityEngine;
+using System.IO;
 
 namespace ShapeAndPose_ns
 {
     public class Rig : MonoBehaviour
     {
-        public Transform[] joints;
-        private int previousChecksum = 0;
-
-
-        public List<Vector3> vertices = new List<Vector3>();
-
-        // Start is called before the first frame update
-        void Start()
-        {
-            InitializeRig();
-        }
-
-        public void InitializeRig()
-        {
-            vertices.Clear();
-            foreach (Transform t in joints)
-            {
-                Vector3[] points = CreatePointsAtPosition(t, Vector3.zero, Vector3.zero, .1f, 6);
-                vertices.AddRange(points);
-                // Debug.Log($"updating rig");
-            }
-        }
-
-        // Update is called once per frame
-        void Update()
-        {
-            UpdateRig();
-        }
-
-        public void UpdateRig()
-        {
-            int currentChecksum = ComputeJointsChecksum();
-            if (currentChecksum != previousChecksum)
-            {
-                InitializeRig();
-                previousChecksum = currentChecksum;
-            }
-        }
-
+        [Header("Source Rig Joints")]
+        // The imported rig’s joints.
+        public Transform[] sourceJoints;
+        
+        [Header("Limb Joints")]
+        // Limb arrays (populated from the config file).
+        public Joint[] arm_lft;
+        public Joint[] arm_rgt;
+        
+        // This mesh will display the combined limb meshes.
+        public Mesh bodyMesh;
 
         /// <summary>
-        /// Creates an array of points arranged in a circle local to a given position.
+        /// Main initialization method.
+        /// Loads the config, attaches Joint components, and creates the body mesh.
         /// </summary>
-        /// <param name="position">Center of the circle.</param>
-        /// <param name="radius">Radius of the circle.</param>
-        /// <param name="divisions">Number of points to generate (evenly spaced).</param>
-        /// <returns>Array of Vector3 positions.</returns>
-        public Vector3[] CreatePointsAtPosition(Transform parent, Vector3 localOffset, Vector3 localEulerOrientation, float radius, int divisions)
+        public void InitializeRig(string configPath)
         {
-            if (divisions < 1)
-                return new Vector3[0];
-
-            Vector3[] points = new Vector3[divisions];
-
-            // Compute the circle center in world space from the parent's local offset.
-            Vector3 center = parent.TransformPoint(localOffset);
-
-            // Combine the parent's rotation with the local Euler orientation to get the circle's rotation.
-            Quaternion circleRotation = parent.rotation * Quaternion.Euler(localEulerOrientation);
-
-            float angleStep = 360f / divisions;
-            for (int i = 0; i < divisions; i++)
-            {
-                // Calculate the angle in radians for each division.
-                float angle = angleStep * i * Mathf.Deg2Rad;
-
-                // Create a point on a circle in the local XZ plane.
-                Vector3 localPoint = new Vector3(Mathf.Cos(angle) * radius, 0, Mathf.Sin(angle) * radius);
-
-                // Rotate the point using the circle rotation.
-                Vector3 rotatedPoint = circleRotation * localPoint;
-
-                // Translate the point into world space.
-                points[i] = center + rotatedPoint;
-            }
-
-            return points;
+            CreateJoints(configPath);
+            CreateBodyMeshes();
         }
 
         /// <summary>
-        /// Computes a checksum from all joints’ positions.
+        /// Loads the JSON config, finds the source joints by name, attaches Joint components,
+        /// computes their vertex rings, and stores them in limb arrays.
         /// </summary>
-        private int ComputeJointsChecksum()
+        public void CreateJoints(string configPath)
         {
-            int checksum = 17;
-            if (joints == null)
-                return checksum;
-
-            foreach (Transform t in joints)
+            if (!File.Exists(configPath))
             {
-                checksum = checksum * 31 + t.position.GetHashCode();
-                checksum = checksum * 31 + t.rotation.GetHashCode();
-                checksum = checksum * 31 + t.localScale.GetHashCode();
+                Debug.LogError("Config file not found: " + configPath);
+                return;
             }
-            return checksum;
+            string json = File.ReadAllText(configPath);
+            RigConfig config = JsonUtility.FromJson<RigConfig>(json);
+
+            List<Joint> leftJoints = new List<Joint>();
+            if (config.meshArmLeft != null)
+            {
+                foreach (string jointName in config.meshArmLeft)
+                {
+                    Transform found = FindSourceJointByName(jointName);
+                    if (found != null)
+                    {
+                        Joint jnt = found.GetComponent<Joint>();
+                        if (jnt == null)
+                        {
+                            jnt = found.gameObject.AddComponent<Joint>();
+                        }
+                        jnt.ComputeVertexRing();
+                        leftJoints.Add(jnt);
+                    }
+                }
+            }
+            arm_lft = leftJoints.ToArray();
+
+            List<Joint> rightJoints = new List<Joint>();
+            if (config.meshArmRight != null)
+            {
+                foreach (string jointName in config.meshArmRight)
+                {
+                    Transform found = FindSourceJointByName(jointName);
+                    if (found != null)
+                    {
+                        Joint jnt = found.GetComponent<Joint>();
+                        if (jnt == null)
+                        {
+                            jnt = found.gameObject.AddComponent<Joint>();
+                        }
+                        jnt.ComputeVertexRing();
+                        rightJoints.Add(jnt);
+                    }
+                }
+            }
+            arm_rgt = rightJoints.ToArray();
         }
 
-
-        // OnDrawGizmos draws gizmos regardless of whether the GameObject is selected.
-        private void OnDrawGizmos()
+        /// <summary>
+        /// Searches the sourceJoints array for a Transform matching the given name.
+        /// </summary>
+        private Transform FindSourceJointByName(string jointName)
         {
-            Gizmos.color = Color.yellow;
-            float sphereSize = 0.02f;
-            foreach (Vector3 vertex in vertices)
+            foreach (Transform t in sourceJoints)
             {
-                Gizmos.DrawSphere(vertex, sphereSize);
+                if (t.name == jointName)
+                    return t;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Creates a mesh for each limb (cylinder from the joints' vertex rings) and combines them into one body mesh.
+        /// </summary>
+        public void CreateBodyMeshes()
+        {
+            // Create a mesh for each limb.
+            Mesh leftMesh = CreateMeshFromJoints(arm_lft);
+            Mesh rightMesh = CreateMeshFromJoints(arm_rgt);
+
+            // Combine the limb meshes into one body mesh.
+            List<CombineInstance> combineInstances = new List<CombineInstance>();
+            if (leftMesh != null)
+            {
+                combineInstances.Add(new CombineInstance { mesh = leftMesh, transform = Matrix4x4.identity });
+            }
+            if (rightMesh != null)
+            {
+                combineInstances.Add(new CombineInstance { mesh = rightMesh, transform = Matrix4x4.identity });
+            }
+            Mesh combinedMesh = new Mesh();
+            combinedMesh.CombineMeshes(combineInstances.ToArray(), true, false);
+            bodyMesh = combinedMesh;
+
+            // Assign the combined mesh to this GameObject.
+            MeshFilter mf = GetComponent<MeshFilter>();
+            if (mf == null)
+            {
+                mf = gameObject.AddComponent<MeshFilter>();
+            }
+            mf.mesh = bodyMesh;
+
+            MeshRenderer mr = GetComponent<MeshRenderer>();
+            if (mr == null)
+            {
+                mr = gameObject.AddComponent<MeshRenderer>();
+            }
+            if (mr.sharedMaterial == null)
+            {
+                mr.sharedMaterial = new Material(Shader.Find("Standard"));
             }
         }
 
+        /// <summary>
+        /// Given an array of Joint components, creates a cylindrical mesh by connecting each joint's vertex ring.
+        /// </summary>
+        public Mesh CreateMeshFromJoints(Joint[] joints)
+        {
+            if (joints == null || joints.Length < 2)
+                return null;
+
+            int divisions = joints[0].vertexRing.Length;
+            List<Vector3> meshVertices = new List<Vector3>();
+            List<int> triangles = new List<int>();
+
+            // Add all vertex rings to the mesh vertices.
+            for (int j = 0; j < joints.Length; j++)
+            {
+                meshVertices.AddRange(joints[j].vertexRing);
+            }
+
+            // Connect consecutive rings with triangles.
+            for (int ring = 0; ring < joints.Length - 1; ring++)
+            {
+                int startCurrent = ring * divisions;
+                int startNext = (ring + 1) * divisions;
+                for (int i = 0; i < divisions; i++)
+                {
+                    int nextI = (i + 1) % divisions;
+                    // Triangle 1
+                    triangles.Add(startCurrent + i);
+                    triangles.Add(startNext + i);
+                    triangles.Add(startNext + nextI);
+                    // Triangle 2
+                    triangles.Add(startCurrent + i);
+                    triangles.Add(startNext + nextI);
+                    triangles.Add(startCurrent + nextI);
+                }
+            }
+            Mesh mesh = new Mesh();
+            mesh.vertices = meshVertices.ToArray();
+            mesh.triangles = triangles.ToArray();
+            mesh.RecalculateNormals();
+            return mesh;
+        }
     }
 }

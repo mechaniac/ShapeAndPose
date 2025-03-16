@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using UnityEngine;
 using UnityEditor;
+using System.IO;
 
 namespace ShapeAndPose_ns
 {
@@ -17,7 +18,14 @@ namespace ShapeAndPose_ns
             Rig r = (Rig)target;
             if (GUILayout.Button("Initialize Rig"))
             {
-                r.InitializeRig();
+                // r.UpdateAllVertices();
+            }
+
+            if (GUILayout.Button("Load Config and Create Mesh"))
+            {
+                // Assuming your JSON config file is located at Assets/Configs/human_01.json
+                string configPath = Path.Combine(Application.dataPath, "ShapeAndPose/Scripts/human_01.json");
+                r.InitializeRig(configPath);
             }
         }
 

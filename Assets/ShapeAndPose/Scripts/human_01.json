@@ -1,9 +1,7 @@
 {
-    "meshArmLeft": [
-      "LeftShoulder",
-      "LeftArm",
-      "LeftForeArm",
-      "LeftHand"
-    ]
+    "meshArmLeft": ["LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand"],
+    "meshArmRight": ["RightShoulder", "RightArm", "RightForeArm", "RightHand"],
+    "meshLegLeft":["LeftUpLeg", "LeftLeg", "LeftFoot"],
+    "meshLegRight":["RightUpLeg", "RightLeg", "RightFoot"]
   }
   
