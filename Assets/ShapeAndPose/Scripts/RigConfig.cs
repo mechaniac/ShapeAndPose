@@ -1,17 +1,28 @@
-using System;
-
-namespace ShapeAndPose_ns
+[System.Serializable]
+public class Vertex
 {
-    [Serializable]
-    public class RigConfig
-    {
-        public LimbConfig[] limbs;
-    }
+    public float x;
+    public float y;
+    public float z;
+}
 
-    [Serializable]
-    public class LimbConfig
-    {
-        public string name;      // e.g., "arm_lft"
-        public string[] joints;  // e.g., ["LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand"]
-    }
+[System.Serializable]
+public class JointConfig
+{
+    public string name;
+    public float scale;
+    public Vertex[] vertices;
+}
+
+[System.Serializable]
+public class LimbConfig
+{
+    public string name;
+    public JointConfig[] joints;
+}
+
+[System.Serializable]
+public class RigConfig
+{
+    public LimbConfig[] limbs;
 }

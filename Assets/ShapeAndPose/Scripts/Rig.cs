@@ -42,7 +42,7 @@ namespace ShapeAndPose_ns
             int currentChecksum = ComputeRigChecksum(sourceRig);
             if (currentChecksum != previousChecksum)
             {
-                
+
                 InitializeRig();
                 previousChecksum = currentChecksum;
             }
@@ -68,13 +68,13 @@ namespace ShapeAndPose_ns
             // Clear any previously stored limbs.
             limbs.Clear();
 
-            // Iterate over each limb defined in the config.
+            // Process each limb entry in the config.
             foreach (LimbConfig limbConfig in config.limbs)
             {
                 List<Joint> limbJoints = new List<Joint>();
-                foreach (string jointName in limbConfig.joints)
+                foreach (JointConfig jointConfig in limbConfig.joints)
                 {
-                    Transform found = FindChildRecursive(sourceRig, jointName);
+                    Transform found = FindChildRecursive(sourceRig, jointConfig.name);
                     if (found != null)
                     {
                         Joint jnt = found.GetComponent<Joint>();
@@ -82,23 +82,40 @@ namespace ShapeAndPose_ns
                         {
                             jnt = found.gameObject.AddComponent<Joint>();
                         }
-                        jnt.ComputeVertexRing();
+                        // Instead of generating a circular vertex ring,
+                        // read the provided vertices from the JSON and scale them.
+                        if (jointConfig.vertices != null && jointConfig.vertices.Length > 0)
+                        {
+                            Vector3[] ring = new Vector3[jointConfig.vertices.Length];
+                            for (int i = 0; i < jointConfig.vertices.Length; i++)
+                            {
+                                Vertex v = jointConfig.vertices[i];
+                                ring[i] = new Vector3(v.x, v.y, v.z) * jointConfig.scale;
+                            }
+                            jnt.vertexRing = ring;
+                        }
+                        else
+                        {
+                            // Fallback: compute a default circular ring.
+                            jnt.ComputeVertexRing();
+                        }
                         limbJoints.Add(jnt);
                     }
                     else
                     {
-                        Debug.LogWarning("Joint not found: " + jointName);
+                        Debug.LogWarning("Joint not found: " + jointConfig.name);
                     }
                 }
                 limbs.Add(limbJoints.ToArray());
             }
 
-            // After collecting limbs, assign direct children for each Joint.
+            // After collecting all joints for each limb, assign each Joint's direct children.
             foreach (Joint[] limb in limbs)
             {
                 AssignDirectChildren(limb);
             }
         }
+
 
         /// <summary>
         /// Recursively searches the hierarchy starting at 'parent' for a Transform with the given name.
@@ -154,6 +171,8 @@ namespace ShapeAndPose_ns
                     combineInstances.Add(new CombineInstance { mesh = limbMesh, transform = Matrix4x4.identity });
                 }
             }
+
+
             Mesh combinedMesh = new Mesh();
             combinedMesh.CombineMeshes(combineInstances.ToArray(), true, false);
             bodyMesh = combinedMesh;
@@ -182,13 +201,27 @@ namespace ShapeAndPose_ns
             List<Vector3> meshVertices = new List<Vector3>();
             List<int> triangles = new List<int>();
 
-            // Append all vertex rings.
+            // Transform of the Rig object (which will host the combined mesh).
+            Transform rigTransform = this.transform;
+
+            // For each Joint in the limb, transform its stored vertex ring from the Joint's local space
+            // to world space, then to the Rig's local space.
             for (int i = 0; i < joints.Length; i++)
             {
-                meshVertices.AddRange(joints[i].vertexRing);
+                Joint joint = joints[i];
+                for (int j = 0; j < joint.vertexRing.Length; j++)
+                {
+                    // vertexRing was stored in the Joint's local space.
+                    Vector3 localVertex = joint.vertexRing[j];
+                    // Convert to world space.
+                    Vector3 worldVertex = joint.transform.TransformPoint(localVertex);
+                    // Convert from world space into the Rig's local space.
+                    Vector3 meshVertex = rigTransform.InverseTransformPoint(worldVertex);
+                    meshVertices.Add(meshVertex);
+                }
             }
 
-            // Create triangles between consecutive rings.
+            // Connect each consecutive vertex ring with triangles.
             for (int ring = 0; ring < joints.Length - 1; ring++)
             {
                 int startCurrent = ring * divisions;
@@ -196,22 +229,24 @@ namespace ShapeAndPose_ns
                 for (int i = 0; i < divisions; i++)
                 {
                     int nextI = (i + 1) % divisions;
-                    // Triangle 1.
+                    // First triangle.
                     triangles.Add(startCurrent + i);
                     triangles.Add(startNext + i);
                     triangles.Add(startNext + nextI);
-                    // Triangle 2.
+                    // Second triangle.
                     triangles.Add(startCurrent + i);
                     triangles.Add(startNext + nextI);
                     triangles.Add(startCurrent + nextI);
                 }
             }
+
             Mesh mesh = new Mesh();
             mesh.vertices = meshVertices.ToArray();
             mesh.triangles = triangles.ToArray();
             mesh.RecalculateNormals();
             return mesh;
         }
+
 
         /// <summary>
         /// Computes a checksum from all joints’ positions.
